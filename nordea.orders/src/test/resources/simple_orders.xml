@@ -1,0 +1,6 @@
+<all>
+<AddOrder book="book-2" operation="SELL" price="101.00" volume="87" orderId="9363" />
+<DeleteOrder book="book-3" orderId="9036" />
+<AddOrder book="book-2" operation="SELL" price="101.00" volume="87" orderId="9365" />
+<DeleteOrder book="book-3" orderId="9363" />
+</all>
