@@ -10,9 +10,12 @@ import java.util.Date;
  *
  */
 public class Order {
+	/** NullObject. */
+	public static final Order EMPTY = new Builder().build();
+	
 	/** Type of operation. */
 	public enum OperationType {
-		BUY, SELL;
+		BUY, SELL, DELETE;
 	}
 	
 	/** Creates deep copy of given order. */

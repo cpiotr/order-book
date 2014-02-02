@@ -12,7 +12,6 @@ import org.apache.commons.cli.ParseException;
 
 import pl.ciruk.nordea.orders.book.Order;
 import pl.ciruk.nordea.orders.book.Order.OperationType;
-import pl.ciruk.nordea.orders.book.OrderBook;
 import pl.ciruk.nordea.orders.book.OrderBookContainer;
 import pl.ciruk.nordea.orders.reader.AddOrderMessage;
 import pl.ciruk.nordea.orders.reader.OrderMessage;
@@ -52,24 +51,26 @@ public class App {
 			while (reader.hasNext()) {
 				OrderMessage msg = reader.next();
 				if (OrderMessage.EMPTY != msg) {
-					OrderBook book = books.get(msg.getBookId());
-					
+					Order order = null;
 					if (msg.isDeleteMessage()) {
-						book.remove(msg.getOrderId());
+						order = new Order.Builder()
+								.id(msg.getOrderId())
+								.operationType(OperationType.DELETE)
+								.build();
 					} else if (msg.isAddMessage()) {
-						Order order  = MESSAGE_TO_ORDER.apply(msg.asAddMessage());
-						
-						if (order.getOperationType() == OperationType.BUY) {
-							book.buy(order);
-						} else if (order.getOperationType() == OperationType.SELL) {
-							book.sell(order);
-						}
+						order  = MESSAGE_TO_ORDER.apply(msg.asAddMessage());
 					}
+					
+					books.process(msg.getBookId(), order);
 				}
 			}
 			
+			books.finishProcessing();
+			
 			// Print results
 			books.printContent(System.out);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
 		}
 	}
 

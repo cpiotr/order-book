@@ -1,11 +1,11 @@
 package pl.ciruk.nordea.orders.book;
 
 import java.io.PrintStream;
-import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
 
 import pl.ciruk.nordea.orders.book.Order.OperationType;
 
@@ -25,21 +25,51 @@ import com.google.common.collect.Maps;
  * @author piotr.ciruk
  *
  */
-public class OrderBook {
+public class OrderBook implements Runnable {
+	String id;
+	
 	List<Order> buys;
 	
 	List<Order> sells;
 	
 	Map<Long, Order> ordersCache = Maps.newHashMap();
 	
-	public OrderBook() {
-		buys = Lists.newLinkedList();
+	BlockingQueue<Order> queue;
+	
+	public OrderBook(String id, BlockingQueue<Order> queue) {
+		this.queue = queue;
+		this.id = id;
 		
+		buys = Lists.newLinkedList();
 		sells = Lists.newLinkedList();
 	}
 	
+	@Override
+	public void run() {
+		while (true) {
+			try {
+				Order order = queue.take();
+				
+				// End of processing?
+				if (order == Order.EMPTY) {
+					return;
+				}
+				
+				if (OperationType.BUY == order.getOperationType()) {
+					buy(order);
+				} else if (OperationType.SELL == order.getOperationType()) {
+					sell(order);
+				} else if (OperationType.DELETE == order.getOperationType()) {
+					remove(order.getId());
+				}
+			} catch (InterruptedException e) {
+				// Nothing to do
+			}
+		}
+	}
+	
 	/** Perform a buying operation. */
-	public void buy(Order order) {
+	private void buy(Order order) {
 		Preconditions.checkArgument(order != null, "Order cannot be null");
 		Preconditions.checkArgument(order.getOperationType() == OperationType.BUY, "Operation must be of type BUY");
 		
@@ -62,7 +92,7 @@ public class OrderBook {
 		}
 	}
 	
-	public void sell(Order order) {
+	private void sell(Order order) {
 		Preconditions.checkArgument(order != null, "Order cannot be null");
 		Preconditions.checkArgument(order.getOperationType() == OperationType.SELL, "Operation must be of type SELL");
 		

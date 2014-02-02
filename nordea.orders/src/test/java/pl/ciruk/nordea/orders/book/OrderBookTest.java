@@ -3,6 +3,8 @@ package pl.ciruk.nordea.orders.book;
 import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -18,11 +20,14 @@ public class OrderBookTest {
 
 	private OrderBook book;
 	
+	private BlockingQueue<Order> queue = new ArrayBlockingQueue<>(10);
+	
 	private long id = 1;
 	
 	@Before
 	public void setUp() throws Exception {
-		book = new OrderBook();
+		book = new OrderBook("ID", queue);
+		new Thread(book).start();
 	}
 
 	@Test
@@ -36,7 +41,16 @@ public class OrderBookTest {
 				new Order.Builder().id(id++).operationType(OperationType.BUY).price(BigDecimal.valueOf(100.0)).volume(50).build(),
 				new Order.Builder().id(id++).operationType(OperationType.BUY).price(BigDecimal.valueOf(99.5)).volume(60).build());
 		for (Order order : orders) {
-			book.buy(order);
+			try {
+				queue.put(order);
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+		}
+		try {
+			queue.put(Order.EMPTY);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
 		}
 		
 		for (int i = 1; i < book.buys.size(); i++) {
@@ -54,7 +68,7 @@ public class OrderBookTest {
 	}
 	
 	@Test
-	public void shouldBeOrderedAsSells() {
+	public void shouldBeOrderedAsSells() throws InterruptedException {
 		List<Order> orders = Lists.newArrayList(
 				new Order.Builder().id(id++).operationType(OperationType.SELL).price(BigDecimal.valueOf(100.0)).volume(50).build(),
 				new Order.Builder().id(id++).operationType(OperationType.SELL).price(BigDecimal.valueOf(101.5)).volume(60).build(),
@@ -64,8 +78,9 @@ public class OrderBookTest {
 				new Order.Builder().id(id++).operationType(OperationType.SELL).price(BigDecimal.valueOf(100.0)).volume(50).build(),
 				new Order.Builder().id(id++).operationType(OperationType.SELL).price(BigDecimal.valueOf(99.5)).volume(60).build());
 		for (Order order : orders) {
-			book.sell(order);
+			queue.put(order);
 		}
+		queue.put(Order.EMPTY);
 		
 		for (int i = 1; i < book.sells.size(); i++) {
 			Order first = book.sells.get(i-1);
@@ -82,20 +97,22 @@ public class OrderBookTest {
 	}
 	
 	@Test
-	public void shouldMatchBuyWithAllSells() {
+	public void shouldMatchBuyWithAllSells() throws InterruptedException {
 		List<Order> sells = Lists.newArrayList(
 				new Order.Builder().id(id++).operationType(OperationType.SELL).price(BigDecimal.valueOf(101.5)).volume(50).build(),
 				new Order.Builder().id(id++).operationType(OperationType.SELL).price(BigDecimal.valueOf(100.0)).volume(60).build());
 		long totalSellVolume = 0;
 		BigDecimal maxSellPrice = BigDecimal.ZERO;
 		for (Order sell : sells) {
-			book.sell(Order.copyOf(sell));
+			queue.put(Order.copyOf(sell));
 			totalSellVolume += sell.getVolume();
 			maxSellPrice  = maxSellPrice.max(sell.getPrice());
 		}
 		
 		Order buy = new Order.Builder().id(id++).operationType(OperationType.BUY).price(maxSellPrice).volume(totalSellVolume).build();
-		book.buy(buy);
+		queue.put(buy);
+		
+		queue.put(Order.EMPTY);
 		
 		Assert.assertTrue(book.buys.isEmpty());
 		Assert.assertTrue(book.sells.isEmpty());
@@ -104,12 +121,12 @@ public class OrderBookTest {
 
 	
 	@Test
-	public void shouldMatchBuyWithFirstSell() {
+	public void shouldMatchBuyWithFirstSell() throws InterruptedException {
 		List<Order> sells = Lists.newArrayList(
 				new Order.Builder().id(id++).operationType(OperationType.SELL).price(BigDecimal.valueOf(200.0)).volume(50).build(),
 				new Order.Builder().id(id++).operationType(OperationType.SELL).price(BigDecimal.valueOf(100.0)).volume(60).build());
 		for (Order sell : sells) {
-			book.sell(Order.copyOf(sell));
+			queue.put(Order.copyOf(sell));
 		}
 		
 		// Create a buy order to match first sell (greater price, greater volume)
@@ -120,7 +137,7 @@ public class OrderBookTest {
 				.price(firstSell.getPrice().add(BigDecimal.ONE))
 				.volume(firstSell.getVolume()*5/4)
 				.build();
-		book.buy(buy);
+		queue.put(buy);
 		
 		Assert.assertFalse(book.buys.isEmpty());
 		Assert.assertFalse(book.sells.isEmpty());
@@ -135,13 +152,13 @@ public class OrderBookTest {
 	}
 	
 	@Test
-	public void shouldMatchBuyWithLastSell() {
+	public void shouldMatchBuyWithLastSell() throws InterruptedException {
 		List<Order> sells = Lists.newArrayList(
 				new Order.Builder().id(id++).operationType(OperationType.SELL).price(BigDecimal.valueOf(200.0)).volume(50).build(),
 				new Order.Builder().id(id++).operationType(OperationType.SELL).price(BigDecimal.valueOf(100.0)).volume(60).build(),
 				new Order.Builder().id(id++).operationType(OperationType.SELL).price(BigDecimal.valueOf(150.0)).volume(30).build());
 		for (Order sell : sells) {
-			book.sell(Order.copyOf(sell));
+			queue.put(Order.copyOf(sell));
 		}
 		
 		// Create a buy order to match first sell (greater price, greater volume)
@@ -152,14 +169,16 @@ public class OrderBookTest {
 				.price(lastSell.getPrice().add(BigDecimal.ONE))
 				.volume(lastSell.getVolume()*4/5)
 				.build();
-		book.buy(buy);
+		queue.put(buy);
+		
+		queue.put(Order.EMPTY);
 		
 		Assert.assertTrue(book.buys.isEmpty());
 		Assert.assertFalse(book.sells.isEmpty());
 	}
 	
 	@Test
-	public void shouldMatchSellWithAllBuys() {
+	public void shouldMatchSellWithAllBuys() throws InterruptedException {
 		List<Order> buys = Lists.newArrayList(
 				new Order.Builder().id(id++).operationType(OperationType.BUY).price(BigDecimal.valueOf(201.5)).volume(50).build(),
 				new Order.Builder().id(id++).operationType(OperationType.BUY).price(BigDecimal.valueOf(100.0)).volume(60).build(),
@@ -167,7 +186,7 @@ public class OrderBookTest {
 		long totalBuyVolume = 0;
 		BigDecimal minBuyPrice = BigDecimal.ZERO;
 		for (Order buy : buys) {
-			book.buy(Order.copyOf(buy));
+			queue.put(Order.copyOf(buy));
 			totalBuyVolume += buy.getVolume();
 			minBuyPrice  = minBuyPrice.min(buy.getPrice());
 		}
@@ -178,21 +197,23 @@ public class OrderBookTest {
 				.price(minBuyPrice.subtract(BigDecimal.valueOf(0.1)))
 				.volume(totalBuyVolume)
 				.build();
-		book.sell(sell);
+		queue.put(sell);
+		
+		queue.put(Order.EMPTY);
 		
 		Assert.assertTrue(book.buys.isEmpty());
 		Assert.assertTrue(book.sells.isEmpty());
 	}
 	
 	@Test
-	public void shouldMatchSellWithFirstBuy() {
+	public void shouldMatchSellWithFirstBuy() throws InterruptedException {
 		List<Order> buys = Lists.newArrayList(
 				new Order.Builder().id(id++).operationType(OperationType.BUY).price(BigDecimal.valueOf(201.5)).volume(50).build(),
 				new Order.Builder().id(id++).operationType(OperationType.BUY).price(BigDecimal.valueOf(100.0)).volume(60).build(),
 				new Order.Builder().id(id++).operationType(OperationType.BUY).price(BigDecimal.valueOf(150.0)).volume(65).build());
 
 		for (Order buy : buys) {
-			book.buy(Order.copyOf(buy));
+			queue.put(Order.copyOf(buy));
 		}
 		
 		Order firstBuy = book.buys.get(0);
@@ -202,7 +223,9 @@ public class OrderBookTest {
 				.price(firstBuy.getPrice().subtract(BigDecimal.ONE))
 				.volume(firstBuy.getVolume()*5/4)
 				.build();
-		book.sell(sell);
+		queue.put(sell);
+
+		queue.put(Order.EMPTY);
 		
 		Assert.assertFalse(book.buys.isEmpty());
 		Assert.assertFalse(book.sells.isEmpty());
@@ -214,7 +237,7 @@ public class OrderBookTest {
 	}
 
 	@Test
-	public void testRemove() {
+	public void testRemove() throws InterruptedException {
 		List<Order> orders = Lists.newArrayList(
 				new Order.Builder().id(id++).operationType(OperationType.BUY).price(BigDecimal.valueOf(10)).volume(50).build(),
 				new Order.Builder().id(id++).operationType(OperationType.BUY).price(BigDecimal.valueOf(20)).volume(30).build(),
@@ -226,11 +249,7 @@ public class OrderBookTest {
 				new Order.Builder().id(id++).operationType(OperationType.SELL).price(BigDecimal.valueOf(200)).volume(60).build(),
 				new Order.Builder().id(id++).operationType(OperationType.SELL).price(BigDecimal.valueOf(100.0)).volume(50).build());
 		for (Order order : orders) {
-			if (order.getOperationType() == OperationType.BUY) {
-				book.buy(order);
-			} else if (order.getOperationType() == OperationType.SELL) {
-				book.sell(order);
-			}
+			queue.put(order);
 		}
 		
 		// Ensure that no match was performed
@@ -248,6 +267,8 @@ public class OrderBookTest {
 			book.remove(order.getId());
 			Assert.assertNull(book.getOrder(order.getId()));
 		}
+		
+		queue.put(Order.EMPTY);
 		
 		Assert.assertEquals(orders.size() - toBeRemoved.size(), book.sells.size() + book.buys.size());
 	}
